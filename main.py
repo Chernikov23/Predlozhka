@@ -18,6 +18,8 @@ admins = [1477027628, 1847134066]
 CHANNEL_ID = -1002404691921  # ID канала "Любят"
 PREDLOZHKA_BOT_LINK = "https://t.me/predlozhkait_bot"
 
+message_store = {}
+
 # Инициализация бота и диспетчера
 bot = Bot(token=os.getenv("BOT_TOKEN"), default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher()
@@ -83,15 +85,18 @@ async def send_message(msg: Message, state: FSMContext):
     for admin_id in admins:
         # Первое сообщение — текст от пользователя
         await bot.send_message(chat_id=admin_id, text=message_text, parse_mode=ParseMode.MARKDOWN)
-        
+
         # Второе сообщение — информация о пользователе
         await bot.send_message(chat_id=admin_id, text=forward_caption, parse_mode=ParseMode.MARKDOWN)
-        
+
+        # Сохраняем сообщение в памяти
+        message_store[msg.message_id] = {"user_id": user_id, "text": message_text}
+
         # Кнопка "Опубликовать в любят"
         if callback == "Love":
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="Опубликовать в любят", callback_data=f"publish:{user_id}:{message_text}")]
+                    [InlineKeyboardButton(text="Опубликовать в любят", callback_data=f"publish:{msg.message_id}")]
                 ]
             )
             await bot.send_message(chat_id=admin_id, text="Опубликовать?", reply_markup=keyboard)
@@ -102,11 +107,20 @@ async def send_message(msg: Message, state: FSMContext):
 # Обработчик нажатия кнопки "Опубликовать в любят"
 @dp.callback_query(F.data.startswith("publish:"))
 async def publish_to_channel(call: CallbackQuery):
-    _, user_id, message_text = call.data.split(":", maxsplit=2)
-    user_id = int(user_id)
-    
+    _, message_id = call.data.split(":")
+    message_id = int(message_id)
+
+    # Получаем сохраненное сообщение
+    data = message_store.get(message_id)
+    if not data:
+        await call.answer("Ошибка: сообщение не найдено!", show_alert=True)
+        return
+
+    user_id = data["user_id"]
+    message_text = data["text"]
+
     user_link = f"[пользователя](tg://user?id={user_id})"
-    
+
     post_text = f"{message_text}\n\n[Предложка]({PREDLOZHKA_BOT_LINK})"
 
     try:
