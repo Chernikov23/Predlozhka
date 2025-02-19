@@ -13,11 +13,13 @@ from dotenv import load_dotenv
 # Загрузка переменных окружения
 load_dotenv()
 
-# Идентификаторы администраторов
+# Идентификаторы администраторов и канала
 admins = [1477027628, 1847134066]
+CHANNEL_ID = -1002404691921  # ID канала "Любят"
+PREDLOZHKA_BOT_LINK = "https://t.me/predlozhkait_bot"
 
 # Инициализация бота и диспетчера
-bot = Bot(token=os.getenv("BOT_TOKEN"), default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN_V2))
+bot = Bot(token=os.getenv("BOT_TOKEN"), default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher()
 
 # Определение состояний
@@ -31,6 +33,9 @@ logger = logging.getLogger(__name__)
 logger.info("Бот запущен и работает...")
 
 # Обработчик команды /start
+
+# Обработчик команды /start
+# Обработчик команды /start
 @dp.message(CommandStart())
 async def start(msg: Message):
     keyboard = InlineKeyboardMarkup(
@@ -42,7 +47,7 @@ async def start(msg: Message):
         ]
     )
     await msg.answer(
-        "Привет\! Я бот предложка для каналов [Цитатник IThub](https://t.me/ithubquotes) и [В IThub SPB любят](https://t.me/V_IThub_SPB_love)\. Пишите свои идеи и предложения",
+        "Привет! Я бот предложка для каналов [Цитатник IThub](https://t.me/ithubquotes) и [В IThub SPB любят](https://t.me/V_IThub_SPB_love). Пишите свои идеи и предложения",
         reply_markup=keyboard
     )
 
@@ -52,7 +57,7 @@ async def handle_quote(call: CallbackQuery, state: FSMContext):
     await state.set_state(Form.callback)
     await state.update_data(callback="Quote")
     await state.set_state(Form.message)
-    await call.message.answer("Введите текст для Цитатника\! *Не забудьте оставить имя автора цитаты*")
+    await call.message.answer("Введите текст для Цитатника! *Не забудьте оставить имя автора цитаты*")
 
 # Обработчик нажатия кнопки "Love"
 @dp.callback_query(F.data == "Love")
@@ -60,7 +65,7 @@ async def handle_love(call: CallbackQuery, state: FSMContext):
     await state.set_state(Form.callback)
     await state.update_data(callback="Love")
     await state.set_state(Form.message)
-    await call.message.answer('Введите текст для "В IThub любят"\! *Не забудьте оставить имя автора цитаты*')
+    await call.message.answer('Введите текст для "В IThub любят"! *Не забудьте оставить имя автора цитаты*')
 
 # Обработчик сообщений в состоянии Form.message
 @dp.message(Form.message)
@@ -69,17 +74,48 @@ async def send_message(msg: Message, state: FSMContext):
     callback = data.get('callback')
     name = msg.from_user.username or msg.from_user.first_name
     user_id = msg.from_user.id
-    link = f"tg://user?id={user_id}"
-    user_link = f"[{name}]({link})"
+    user_link = f"[{name}](tg://user?id={user_id})"
+
+    message_text = msg.text or msg.caption or "Ошибка получения текста"
 
     forward_caption = f"Сообщение от {user_link} для {'ЦИТАТНИКА' if callback == 'Quote' else 'ЛЮБЯТ'}:"
 
     for admin_id in admins:
-        await msg.forward(chat_id=admin_id)
-        await bot.send_message(chat_id=admin_id, text=forward_caption)
+        # Первое сообщение — текст от пользователя
+        await bot.send_message(chat_id=admin_id, text=message_text, parse_mode=ParseMode.MARKDOWN)
+        
+        # Второе сообщение — информация о пользователе
+        await bot.send_message(chat_id=admin_id, text=forward_caption, parse_mode=ParseMode.MARKDOWN)
+        
+        # Кнопка "Опубликовать в любят"
+        if callback == "Love":
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="Опубликовать в любят", callback_data=f"publish:{user_id}:{message_text}")]
+                ]
+            )
+            await bot.send_message(chat_id=admin_id, text="Опубликовать?", reply_markup=keyboard)
 
-    await msg.answer("Ваше сообщение *успешно отправлено* администраторам на рассмотрение\!")
+    await msg.answer("Ваше сообщение *успешно отправлено* администраторам на рассмотрение!")
     await state.clear()
+
+# Обработчик нажатия кнопки "Опубликовать в любят"
+@dp.callback_query(F.data.startswith("publish:"))
+async def publish_to_channel(call: CallbackQuery):
+    _, user_id, message_text = call.data.split(":", maxsplit=2)
+    user_id = int(user_id)
+    
+    user_link = f"[пользователя](tg://user?id={user_id})"
+    
+    post_text = f"{message_text}\n\n[Предложка]({PREDLOZHKA_BOT_LINK})"
+
+    try:
+        await bot.send_message(chat_id=CHANNEL_ID, text=post_text, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+        await call.answer("Сообщение опубликовано в канал!", show_alert=True)
+
+    except Exception as e:
+        logging.error(f"Ошибка публикации: {e}")
+        await call.answer("Ошибка при публикации!", show_alert=True)
 
 # Запуск бота
 async def main() -> None:
